@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPCA - Dashboard IBGE</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #0b0f19;
+    color: #e5e7eb;
+    padding: 24px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0 0 4px 0; font-weight: 600; letter-spacing: .2px; }
+  .subtitle { color: #94a3b8; font-size: 13px; }
+  .status { display:flex; align-items:center; gap:8px; font-size: 12px; color: #94a3b8; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+  .dot.live { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .dot.cache { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+  .refresh-btn {
+    background: #1f2937; color: #e5e7eb; border: 1px solid #334155; border-radius: 6px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer;
+  }
+  .refresh-btn:hover { background: #273449; }
+  .card {
+    background: #121826; border: 1px solid #1f2937; border-radius: 12px;
+    padding: 20px; margin-bottom: 20px;
+  }
+  .kpi-row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .kpi { flex: 1; min-width: 220px; }
+  .kpi-label { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+  .kpi-value { font-size: 38px; font-weight: 700; line-height: 1; }
+  .kpi-delta { margin-top: 8px; font-size: 13px; }
+  .kpi-delta.up { color: #ef4444; }
+  .kpi-delta.down { color: #22c55e; }
+  .kpi-delta.flat { color: #94a3b8; }
+  .kpi-sub { color: #64748b; font-size: 12px; margin-top: 4px; }
+  .divider { width: 1px; background: #1f2937; margin: 0 4px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin: 0 0 16px 0; font-weight: 600; }
+  .chart-container { position: relative; height: 300px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #1f2937; }
+  th { color: #94a3b8; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  tr.highlight td { color: #fca5a5; background: rgba(239,68,68,0.10); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .legend-note { display:flex; align-items:center; gap:8px; margin-top: 12px; font-size: 12px; color: #94a3b8; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; background: rgba(239,68,68,0.6); display:inline-block; }
+  footer { text-align: center; color: #475569; font-size: 11px; margin-top: 24px; }
+  a { color: #38bdf8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>IPCA — Índice de Preços ao Consumidor Amplo</h1>
+      <div class="subtitle">Variação mensal · últimos 12 meses · fonte: IBGE (SIDRA, agregado 1737, variável 2266)</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="status" id="status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Carregando...</span>
+      </div>
+      <div style="margin-top:8px;"><button class="refresh-btn" id="refreshBtn">Atualizar agora</button></div>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="kpi-row" id="kpiRow">
+      <div class="kpi">
+        <div class="kpi-label">Mês mais recente</div>
+        <div class="kpi-value" id="kpiLatestLabel">--</div>
+        <div class="kpi-value" id="kpiLatestValue" style="font-size:44px;">--</div>
+        <div class="kpi-delta" id="kpiDelta">--</div>
+      </div>
+      <div class="divider"></div>
+      <div class="kpi">
+        <div class="kpi-label">Mês anterior</div>
+        <div class="kpi-value" id="kpiPrevLabel" style="font-size:22px; color:#94a3b8;">--</div>
+        <div class="kpi-value" id="kpiPrevValue" style="font-size:30px; color:#cbd5e1;">--</div>
+        <div class="kpi-sub" id="kpiAccum12">--</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Variação mensal (%) — últimos 12 meses</h2>
+    <div class="chart-container"><canvas id="ipcaChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Tabela de valores</h2>
+    <table>
+      <thead><tr><th>Mês</th><th class="num">Variação (%)</th></tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <div class="legend-note"><span class="swatch"></span> destacado em vermelho: variação acima de 0,5%</div>
+  </div>
+
+  <footer id="footerNote">—</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script>
+const IBGE_URL = "https://servicodados.ibge.gov.br/api/v3/agregados/1737/periodos/-12/variaveis/2266";
+
+// Snapshot de segurança (dados reais divulgados pelo IBGE, obtidos em 05/07/2026)
+// usado somente caso a busca ao vivo na API do IBGE falhe (ex.: bloqueio de rede do ambiente).
+const FALLBACK_SERIE = {
+  "202506": "0.24",
+  "202507": "0.26",
+  "202508": "-0.11",
+  "202509": "0.48",
+  "202510": "0.09",
+  "202511": "0.18",
+  "202512": "0.33",
+  "202601": "0.33",
+  "202602": "0.70",
+  "202603": "0.88",
+  "202604": "0.67",
+  "202605": "0.58"
+};
+const FALLBACK_DATE = "05/07/2026";
+
+const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+function labelFor(period) {
+  const year = period.slice(0, 4);
+  const month = parseInt(period.slice(4, 6), 10);
+  return `${MESES[month - 1]}/${year.slice(2)}`;
+}
+
+function fmt(v) {
+  const n = parseFloat(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2).replace('.', ',') + '%';
+}
+
+async function fetchIPCA() {
+  try {
+    const resp = await fetch(IBGE_URL, { method: 'GET' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const serie = data[0].resultados[0].series[0].serie;
+    if (!serie || Object.keys(serie).length === 0) throw new Error('série vazia');
+    return { serie, live: true };
+  } catch (err) {
+    console.warn('Falha ao buscar dados ao vivo do IBGE, usando snapshot local:', err);
+    return { serie: FALLBACK_SERIE, live: false };
+  }
+}
+
+let chartInstance = null;
+
+function render(serie, live) {
+  const periods = Object.keys(serie).sort();
+  const values = periods.map(p => parseFloat(serie[p]));
+  const labels = periods.map(labelFor);
+
+  // KPI
+  const latestIdx = periods.length - 1;
+  const prevIdx = periods.length - 2;
+  const latestVal = values[latestIdx];
+  const prevVal = values[prevIdx];
+  const delta = latestVal - prevVal;
+
+  document.getElementById('kpiLatestLabel').textContent = labels[latestIdx];
+  document.getElementById('kpiLatestValue').textContent = fmt(serie[periods[latestIdx]]);
+  document.getElementById('kpiPrevLabel').textContent = labels[prevIdx];
+  document.getElementById('kpiPrevValue').textContent = fmt(serie[periods[prevIdx]]);
+
+  const deltaEl = document.getElementById('kpiDelta');
+  const deltaAbs = Math.abs(delta).toFixed(2).replace('.', ',');
+  if (delta > 0.001) {
+    deltaEl.textContent = `▲ ${deltaAbs} p.p. em relação ao mês anterior`;
+    deltaEl.className = 'kpi-delta up';
+  } else if (delta < -0.001) {
+    deltaEl.textContent = `▼ ${deltaAbs} p.p. em relação ao mês anterior`;
+    deltaEl.className = 'kpi-delta down';
+  } else {
+    deltaEl.textContent = `= estável em relação ao mês anterior`;
+    deltaEl.className = 'kpi-delta flat';
+  }
+
+  const accumWindow = values.reduce((acc, v) => acc + v, 0);
+  document.getElementById('kpiAccum12').textContent = `Soma simples dos 12 meses exibidos: ${accumWindow >= 0 ? '+' : ''}${accumWindow.toFixed(2).replace('.', ',')}%`;
+
+  // Status
+  const dot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const footer = document.getElementById('footerNote');
+  const now = new Date();
+  const nowStr = now.toLocaleString('pt-BR');
+  if (live) {
+    dot.className = 'dot live';
+    statusText.textContent = 'Dados ao vivo (API IBGE) — ' + nowStr;
+    footer.textContent = 'Dados obtidos diretamente da API do IBGE em ' + nowStr + '.';
+  } else {
+    dot.className = 'dot cache';
+    statusText.textContent = 'Rede bloqueada — exibindo snapshot local de ' + FALLBACK_DATE;
+    footer.textContent = 'Não foi possível acessar a API do IBGE a partir deste ambiente (rede restrita). Exibindo o último snapshot obtido em ' + FALLBACK_DATE + '. Abra este arquivo diretamente em um navegador comum para buscar os dados ao vivo.';
+  }
+
+  // Table
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  periods.forEach((p, i) => {
+    const v = values[i];
+    const tr = document.createElement('tr');
+    if (v > 0.5) tr.className = 'highlight';
+    tr.innerHTML = `<td>${labels[i]}</td><td class="num">${fmt(serie[p])}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Chart
+  const ctx = document.getElementById('ipcaChart').getContext('2d');
+  const pointColors = values.map(v => v > 0.5 ? '#ef4444' : '#38bdf8');
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Variação mensal (%)',
+        data: values,
+        borderColor: '#38bdf8',
+        backgroundColor: 'rgba(56,189,248,0.12)',
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        pointRadius: 4,
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => 'IPCA: ' + fmt(String(ctx.raw))
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1f2937' } },
+        y: {
+          ticks: { color: '#94a3b8', callback: (v) => v.toFixed(2).replace('.', ',') + '%' },
+          grid: { color: '#1f2937' }
+        }
+      }
+    }
+  });
+}
+
+async function loadAndRender() {
+  document.getElementById('statusText').textContent = 'Carregando...';
+  const { serie, live } = await fetchIPCA();
+  render(serie, live);
+}
+
+document.getElementById('refreshBtn').addEventListener('click', loadAndRender);
+loadAndRender();
+</script>
+</body>
+</html>
